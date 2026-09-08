@@ -19,7 +19,7 @@
                         </Border>
                         <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
                             <TextBlock Text="导出工具" FontSize="18" FontWeight="SemiBold"/>
-                            <TextBlock Text="选择联系人后导出 TXT / CSV / JSON" Foreground="Gray" FontSize="12"/>
+                            <TextBlock Text="选择联系人并指定一种导出格式" Foreground="Gray" FontSize="12"/>
                         </StackPanel>
                     </StackPanel>
                     <StackPanel Visibility="{Binding ShowOperationProgress, Converter={StaticResource BoolToVis}}">
@@ -95,8 +95,15 @@
 
                 <GroupBox Header="导出设置" Margin="0,0,0,16" Padding="12">
                     <StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                            <TextBlock Text="导出格式" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                            <ComboBox Width="140"
+                                      ItemsSource="{Binding ExportFormats}"
+                                      SelectedItem="{Binding SelectedExportFormat, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                        </StackPanel>
                         <CheckBox Content="同时导出图片、表情、全部表情包等媒体并内嵌到 HTML（体积更大）"
-                                  IsChecked="{Binding IncludeMedia}"/>
+                                  IsChecked="{Binding IncludeMedia}"
+                                  IsEnabled="{Binding IsHtmlExport}"/>
                         <CheckBox Content="报错时自动上传诊断日志"
                                   IsChecked="{Binding DiagnosticsConsented}" Margin="0,8,0,0"/>
                     </StackPanel>
@@ -117,7 +124,7 @@
                         <TextBlock Text="1. 首次使用点击「准备数据」（需微信 PC 版已登录）" Margin="0,2"/>
                         <TextBlock Text="2. 若密钥扫描失败，请右键以管理员身份运行本程序" Margin="0,2"/>
                         <TextBlock Text="3. 在左侧列表中选择一个或多个联系人（Ctrl 多选）" Margin="0,2"/>
-                        <TextBlock Text="4. 点击「导出选中」" Margin="0,2"/>
+                        <TextBlock Text="4. 选择一种格式，再点击「导出选中」" Margin="0,2"/>
                         <TextBlock Text="5. 默认导出目录：Downloads\微信聊天记录导出\" Foreground="Gray" Margin="0,2"/>
                     </StackPanel>
                 </GroupBox>

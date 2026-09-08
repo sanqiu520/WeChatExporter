@@ -55,6 +55,23 @@ internal static class SingleFileExporter
         return outPath;
     }
 
+    public static string CopyDataFile(string sourceDir, string contactName, string destinationDir, string exportFormat)
+    {
+        var extension = exportFormat.Trim().ToLowerInvariant();
+        if (extension is not ("json" or "txt" or "csv"))
+            throw new ArgumentException($"不支持的数据文件格式：{exportFormat}", nameof(exportFormat));
+
+        var sourcePath = Path.Combine(sourceDir, $"chat.{extension}");
+        if (!File.Exists(sourcePath))
+            throw new InvalidOperationException($"未生成 {extension.ToUpperInvariant()} 导出文件");
+
+        var safeName = SanitizeFilename(string.IsNullOrWhiteSpace(contactName) ? "聊天记录" : contactName);
+        Directory.CreateDirectory(destinationDir);
+        var destinationPath = Path.Combine(destinationDir, $"{safeName}_{FileStamp()}.{extension}");
+        File.Copy(sourcePath, destinationPath, overwrite: true);
+        return destinationPath;
+    }
+
     public static string? WriteStickerGallery(string sourceDir, string destinationDir)
     {
         var manifestPath = Path.Combine(sourceDir, "stickers-manifest.json");
@@ -365,7 +382,11 @@ internal static class SingleFileExporter
     {
         foreach (var key in keys)
         {
-            if (el.TryGetProperty(key, out var v) && v.TryGetInt32(out var n)) return n;
+            if (!el.TryGetProperty(key, out var v)) continue;
+            if (v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var n))
+                return n;
+            if (v.ValueKind == JsonValueKind.String && int.TryParse(v.GetString(), out var parsed))
+                return parsed;
         }
         return null;
     }

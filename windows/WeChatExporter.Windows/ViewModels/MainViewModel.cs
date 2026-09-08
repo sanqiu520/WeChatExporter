@@ -23,6 +23,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private bool _isBusy;
     private bool _isDataReady;
     private bool _includeMedia;
+    private string _selectedExportFormat = "HTML";
     private bool _diagnosticsConsented;
     private string? _alertMessage;
     private double? _operationProgress;
@@ -50,6 +51,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ICollectionView ContactsView { get; }
     public ObservableCollection<ContactItem> SelectedContacts { get; } = [];
     public ObservableCollection<string> Logs { get; }
+    public IReadOnlyList<string> ExportFormats { get; } = ["HTML", "JSON", "TXT", "CSV"];
 
     public bool IsRunningAsAdmin { get; }
 
@@ -134,6 +136,23 @@ public sealed class MainViewModel : INotifyPropertyChanged
             OnPropertyChanged();
         }
     }
+
+    public string SelectedExportFormat
+    {
+        get => _selectedExportFormat;
+        set
+        {
+            if (string.IsNullOrWhiteSpace(value)) return;
+            if (_selectedExportFormat == value) return;
+            _selectedExportFormat = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IsHtmlExport));
+            if (!IsHtmlExport)
+                IncludeMedia = false;
+        }
+    }
+
+    public bool IsHtmlExport => string.Equals(SelectedExportFormat, "HTML", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>是否报错时自动上传诊断日志（与 settings.json 双向同步，即时生效）。</summary>
     public bool DiagnosticsConsented
@@ -321,7 +340,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         try
         {
             Directory.CreateDirectory(ExportPath);
-            if (IncludeMedia)
+            if (IsHtmlExport && IncludeMedia)
             {
                 var stickerTemp = Path.Combine(Path.GetTempPath(), $"WeChatExporter-stickers-{Guid.NewGuid():N}");
                 try
@@ -345,9 +364,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 var tempDir = Path.Combine(Path.GetTempPath(), $"WeChatExporter-{Guid.NewGuid():N}");
                 try
                 {
-                    var count = await _wxCli.ExportAsync(contact, tempDir, IncludeMedia, AppendLog);
-                    var htmlPath = SingleFileExporter.WriteHtml(tempDir, contact.DisplayName, ExportPath);
-                    summary.Add($"• {contact.DisplayName}：{count} 条 → {Path.GetFileName(htmlPath)}");
+                    var count = await _wxCli.ExportAsync(
+                        contact, tempDir, SelectedExportFormat, IncludeMedia, AppendLog);
+                    var outputPath = IsHtmlExport
+                        ? SingleFileExporter.WriteHtml(tempDir, contact.DisplayName, ExportPath)
+                        : SingleFileExporter.CopyDataFile(
+                            tempDir, contact.DisplayName, ExportPath, SelectedExportFormat);
+                    summary.Add($"• {contact.DisplayName}：{count} 条 → {Path.GetFileName(outputPath)}");
                 }
                 finally
                 {
@@ -355,7 +378,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 }
             }
 
-            ShowAlert($"已导出 {SelectedContacts.Count} 个单文件到：\n{ExportPath}\n\n{string.Join('\n', summary)}\n\n用浏览器打开 .html 即可查看全部内容（媒体已内嵌）。");
+            ShowAlert($"已按 {SelectedExportFormat} 格式导出 {SelectedContacts.Count} 个会话到：\n{ExportPath}\n\n{string.Join('\n', summary)}");
         }
         catch (Exception ex)
         {

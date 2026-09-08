@@ -692,33 +692,45 @@ public sealed class WxCliService
     public async Task<int> ExportAsync(
         ContactItem contact,
         string outputDir,
+        string exportFormat,
         bool includeMedia = false,
         Action<string>? log = null,
         CancellationToken cancellationToken = default)
     {
         log ??= _ => { };
         Directory.CreateDirectory(outputDir);
+        var format = exportFormat.Trim().ToLowerInvariant();
+        if (format is not ("html" or "json" or "txt" or "csv"))
+            throw new ArgumentException($"不支持的导出格式：{exportFormat}", nameof(exportFormat));
+
+        includeMedia = includeMedia && format == "html";
         // 始终使用唯一的 wxid/username 作为查询条件，避免 DisplayName 不唯一导致导出错位
         var query = contact.Id;
-        log($"导出：{contact.DisplayName}（{contact.Id}）{(includeMedia ? "（含媒体）" : "")}");
+        log($"导出：{contact.DisplayName}（{contact.Id}）→ {format.ToUpperInvariant()}{(includeMedia ? "（含媒体）" : "")}");
 
         var txtPath = Path.Combine(outputDir, "chat.txt");
         var jsonPath = Path.Combine(outputDir, "chat.json");
         var csvPath = Path.Combine(outputDir, "chat.csv");
 
-        await RunAsync([
-            "export", query,
-            "--format", "txt",
-            "-o", txtPath,
-            "--limit", "999999"
-        ], ExportTimeoutSeconds, log, cancellationToken);
-
-        await RunAsync([
-            "export", query,
-            "--format", "json",
-            "-o", jsonPath,
-            "--limit", "999999"
-        ], ExportTimeoutSeconds, log, cancellationToken);
+        if (format == "txt")
+        {
+            await RunAsync([
+                "export", query,
+                "--format", "txt",
+                "-o", txtPath,
+                "--limit", "999999"
+            ], ExportTimeoutSeconds, log, cancellationToken);
+        }
+        else
+        {
+            // HTML 和 CSV 以 JSON 为中间数据，临时文件不会复制到最终导出目录。
+            await RunAsync([
+                "export", query,
+                "--format", "json",
+                "-o", jsonPath,
+                "--limit", "999999"
+            ], ExportTimeoutSeconds, log, cancellationToken);
+        }
 
         if (includeMedia)
         {
@@ -741,10 +753,12 @@ public sealed class WxCliService
             await ImageExporter.ExportImagesAsync(outputDir, log, cancellationToken);
         }
 
-        var count = await WriteCsvFromJsonAsync(jsonPath, csvPath);
-        if (count == 0)
+        var count = format == "csv"
+            ? await WriteCsvFromJsonAsync(jsonPath, csvPath)
+            : 0;
+        if (count == 0 && format != "txt")
             count = CountMessagesInJsonFile(jsonPath);
-        if (count == 0 && File.Exists(txtPath))
+        if (count == 0 && format == "txt" && File.Exists(txtPath))
             count = CountTxtMessages(txtPath);
 
         if (count > 0)
@@ -811,26 +825,13 @@ public sealed class WxCliService
         using var process = new Process { StartInfo = psi, EnableRaisingEvents = true };
         var stdout = new StringBuilder();
         var stderr = new StringBuilder();
-
-        process.OutputDataReceived += (_, e) =>
-        {
-            if (e.Data is null) return;
-            stdout.AppendLine(e.Data);
-            log(e.Data);
-        };
-        process.ErrorDataReceived += (_, e) =>
-        {
-            if (e.Data is null) return;
-            stderr.AppendLine(e.Data);
-            if (!string.IsNullOrWhiteSpace(e.Data))
-                log(e.Data);
-        };
+        var outputLock = new object();
 
         if (!process.Start())
             throw new InvalidOperationException("无法启动 wx-cli");
 
-        process.BeginOutputReadLine();
-        process.BeginErrorReadLine();
+        var stdoutPump = PumpOutputAsync(process.StandardOutput, stdout, outputLock, log);
+        var stderrPump = PumpOutputAsync(process.StandardError, stderr, outputLock, log);
 
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         if (timeoutSeconds is int seconds)
@@ -838,13 +839,37 @@ public sealed class WxCliService
 
         try
         {
-            await process.WaitForExitAsync(timeoutCts.Token);
+            var exitTask = process.WaitForExitAsync(timeoutCts.Token);
+            if (IsSessionsJsonCommand(args))
+            {
+                while (!exitTask.IsCompleted)
+                {
+                    await Task.Delay(100, timeoutCts.Token);
+                    string snapshot;
+                    lock (outputLock)
+                        snapshot = stdout.ToString();
+                    if (!IsCompleteSessionsJson(snapshot))
+                        continue;
+
+                    // sessions 已输出完整 JSON 时只结束当前前台进程，保留 daemon 供后续导出复用。
+                    try { process.Kill(entireProcessTree: false); } catch { /* 已退出 */ }
+                    try { await process.WaitForExitAsync(CancellationToken.None); } catch { /* ignore */ }
+                    await Task.WhenAll(stdoutPump, stderrPump);
+                    return snapshot;
+                }
+            }
+            await exitTask;
+            await Task.WhenAll(stdoutPump, stderrPump);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             try { process.Kill(entireProcessTree: true); } catch { /* ignore */ }
+            try { await Task.WhenAll(stdoutPump, stderrPump); } catch { /* ignore */ }
             // daemon 拉起失败时 wx.exe 可能不退出（挂起），超时 kill 后同样清理残留并重试一次
-            if (allowDaemonRecovery && IsDaemonStartupFailure(stdout + "\n" + stderr))
+            string partialOutput;
+            lock (outputLock)
+                partialOutput = stdout + "\n" + stderr;
+            if (allowDaemonRecovery && IsDaemonStartupFailure(partialOutput))
             {
                 log("检测到 wx-daemon 启动异常（命令挂起），正在清理残留 daemon 并重试…");
                 await RecoverDaemonAsync(log, cancellationToken);
@@ -856,7 +881,9 @@ public sealed class WxCliService
                     : "wx-cli 执行已取消。");
         }
 
-        var combined = stdout + "\n" + stderr;
+        string combined;
+        lock (outputLock)
+            combined = stdout + "\n" + stderr;
         if (process.ExitCode != 0)
         {
             // wx.exe 内部拉起 wx-daemon 失败（启动超时/无法启动）：清理残留后重试一次
@@ -870,6 +897,48 @@ public sealed class WxCliService
         }
 
         return combined.ToString();
+    }
+
+    private static async Task PumpOutputAsync(
+        StreamReader reader,
+        StringBuilder destination,
+        object outputLock,
+        Action<string> log)
+    {
+        var buffer = new char[4096];
+        while (true)
+        {
+            var read = await reader.ReadAsync(buffer);
+            if (read == 0)
+                return;
+            var chunk = new string(buffer, 0, read);
+            lock (outputLock)
+                destination.Append(chunk);
+            if (!string.IsNullOrWhiteSpace(chunk))
+                log(chunk.TrimEnd());
+        }
+    }
+
+    private static bool IsSessionsJsonCommand(IReadOnlyList<string> args) =>
+        args.Count > 1
+        && string.Equals(args[0], "sessions", StringComparison.OrdinalIgnoreCase)
+        && args.Contains("--json", StringComparer.OrdinalIgnoreCase);
+
+    private static bool IsCompleteSessionsJson(string output)
+    {
+        if (string.IsNullOrWhiteSpace(output) || !output.TrimEnd().EndsWith('}'))
+            return false;
+        try
+        {
+            using var doc = JsonDocument.Parse(output);
+            return doc.RootElement.ValueKind == JsonValueKind.Object
+                   && doc.RootElement.TryGetProperty("sessions", out var sessions)
+                   && sessions.ValueKind == JsonValueKind.Array;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
     }
 
     /// <summary>判断 wx-cli 输出是否为「wx-daemon 启动失败」（闭源 wx.exe 内部错误，非应用层文案）。</summary>
@@ -966,8 +1035,8 @@ public sealed class WxCliService
             JsonValueKind.Object when root.TryGetProperty("results", out var results) => results.EnumerateArray(),
             JsonValueKind.Object when root.TryGetProperty("items", out var items) => items.EnumerateArray(),
             JsonValueKind.Object when root.TryGetProperty("sessions", out var sessions) => sessions.EnumerateArray(),
-            JsonValueKind.Object => [root],
-            _ => []
+            JsonValueKind.Object => new[] { root },
+            _ => Array.Empty<JsonElement>()
         };
 
         var list = new List<ContactItem>();
@@ -977,7 +1046,7 @@ public sealed class WxCliService
             if (string.IsNullOrWhiteSpace(username) || username == "@placeholder_foldgroup")
                 continue;
 
-            var display = GetString(row, "display", "display_name", "name", "title") ?? username;
+            var display = GetString(row, "display", "display_name", "name", "title", "chat") ?? username;
             display = CleanDisplayName(display, username);
             var summary = (GetString(row, "summary", "last_message", "preview") ?? "")
                 .Replace('\n', ' ');
@@ -1138,9 +1207,8 @@ public sealed class WxCliService
                 return root.GetArrayLength();
 
             if (root.TryGetProperty("conversation", out var conversation)
-                && conversation.TryGetProperty("message_count", out var mc)
-                && mc.TryGetInt32(out var messageCount))
-                return messageCount;
+                && GetLong(conversation, "message_count") is long messageCount)
+                return messageCount > int.MaxValue ? int.MaxValue : (int)messageCount;
 
             foreach (var key in new[] { "items", "messages", "results" })
             {
@@ -1149,9 +1217,8 @@ public sealed class WxCliService
             }
 
             if (root.TryGetProperty("paging", out var paging)
-                && paging.TryGetProperty("returned", out var returned)
-                && returned.TryGetInt32(out var n))
-                return n;
+                && GetLong(paging, "returned") is long returned)
+                return returned > int.MaxValue ? int.MaxValue : (int)returned;
         }
         catch
         {

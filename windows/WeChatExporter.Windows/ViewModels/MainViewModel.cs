@@ -337,6 +337,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         IsBusy = true;
         StatusText = "导出中…";
         var summary = new List<string>();
+        var exportSucceeded = false;
         try
         {
             Directory.CreateDirectory(ExportPath);
@@ -378,7 +379,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 }
             }
 
-            ShowAlert($"已按 {SelectedExportFormat} 格式导出 {SelectedContacts.Count} 个会话到：\n{ExportPath}\n\n{string.Join('\n', summary)}");
+            AppendLog($"已按 {SelectedExportFormat} 格式导出 {SelectedContacts.Count} 个会话到：{ExportPath}");
+            foreach (var line in summary)
+                AppendLog(line);
+            exportSucceeded = true;
         }
         catch (Exception ex)
         {
@@ -388,7 +392,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         finally
         {
             IsBusy = false;
-            StatusText = "就绪";
+            StatusText = exportSucceeded ? "导出完成" : "就绪";
         }
     }
 

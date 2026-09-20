@@ -21,8 +21,8 @@ public static class DiagnosticUploader
     private const string AppName = "WeChatExporter";
     private const string Platform = "windows";
 
-    // 与契约文档 v2.14.0 保持一致（独立于 csproj 的发布版本号，由主流程统一同步）。
-    private const string Version = "2.14.0";
+    // 独立于 csproj 的发布版本号，由主流程统一同步。
+    private const string Version = "2.15.0";
     private const string Build = "31";
 
     private const int MaxErrorChars = 2000;

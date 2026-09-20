@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.15.0] - 2026-09-20
+
+### Added
+- **Windows 支持单格式导出**：可在 HTML、JSON、TXT、CSV 中选择一种格式，媒体导出仅在 HTML 模式下启用
+
+### Fixed
+- **大量会话读取完成后仍不退出**：检测到完整会话 JSON 后结束当前前台进程，并持续复用 wx-daemon
+- **微信字段兼容性**：兼容 `chat` 会话名称以及字符串形式的消息数、时间戳等数字字段
+- **导出完成反馈**：成功后不再弹出阻塞提示框，日志区显示“导出完成”并记录导出摘要
+
 ## [2.14.0] - 2026-08-30
 
 ### Added

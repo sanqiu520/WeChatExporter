@@ -10,34 +10,6 @@ permissions:
   contents: write
 
 jobs:
-  build-macos:
-    name: Build macOS (arm64)
-    runs-on: macos-14
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Prepare app icon
-        run: bash scripts/prepare_icon.sh
-
-      - name: Build app with bundled wx-cli
-        run: ./build_app.sh
-
-      - name: Create DMG installer
-        run: |
-          python3 -m pip install --quiet Pillow || true
-          bash scripts/create_dmg.sh WeChatExporter-macOS-arm64.dmg
-
-      - name: Create zip
-        run: ditto -c -k --sequesterRsrc --keepParent WeChatExporter.app WeChatExporter-macOS-arm64.zip
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: macos
-          path: |
-            WeChatExporter-macOS-arm64.dmg
-            WeChatExporter-macOS-arm64.zip
-
   build-windows:
     name: Build Windows (x64)
     runs-on: windows-latest
@@ -68,7 +40,7 @@ jobs:
 
   release:
     name: Publish GitHub Release
-    needs: [build-macos, build-windows]
+    needs: [build-windows]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4

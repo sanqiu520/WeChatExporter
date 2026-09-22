@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.16.0] - 2026-09-22
+
+### Added
+- **Windows 应用图标**：为 EXE、任务栏、窗口标题栏及主界面加入统一的高清微信导出图标
+
 ## [2.15.0] - 2026-09-20
 
 ### Added

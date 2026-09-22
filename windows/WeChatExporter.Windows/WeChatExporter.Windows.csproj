@@ -8,12 +8,17 @@
     <AssemblyName>WeChatExporter</AssemblyName>
     <RootNamespace>WeChatExporter</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>2.15.0</Version>
+    <ApplicationIcon>Assets\WeChatExporter.ico</ApplicationIcon>
+    <Version>2.16.0</Version>
     <Company>WeChatExporter</Company>
     <Product>微信聊天记录导出</Product>
     <Description>Windows 版微信聊天记录导出工具</Description>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.11" />
+  </ItemGroup>
+  <ItemGroup>
+    <Resource Include="Assets\WeChatExporter.ico" />
+    <Resource Include="Assets\WeChatExporter-icon.png" />
   </ItemGroup>
 </Project>

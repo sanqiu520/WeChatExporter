@@ -22,8 +22,8 @@ public static class DiagnosticUploader
     private const string Platform = "windows";
 
     // 独立于 csproj 的发布版本号，由主流程统一同步。
-    private const string Version = "2.15.0";
-    private const string Build = "31";
+    private const string Version = "2.16.0";
+    private const string Build = "32";
 
     private const int MaxErrorChars = 2000;
     private const int MaxLogChars = 8000;
